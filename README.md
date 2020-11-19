@@ -11,6 +11,7 @@
 The purpose of this tool is to give a simple way to explore Windows kernel/components without doing a lot of additional work or setting up local debugger.
 It features:
 + Protected Processes Hijacking via Process object modification;
++ Driver Signature Enforcement Overrider (similar to DSEFIx);
 + Driver loader for bypassing Driver Signature Enforcement (similar to TDL/Stryker);
 + Support of various vulnerable drivers use as functionality "providers".
 
@@ -18,27 +19,38 @@ It features:
 
 ###### KDU -ps ProcessID
 ###### KDU -map filename
+###### KDU -dse value
 ###### KDU -prv ProviderID
 ###### KDU -list
 * -prv  - optional, select vulnerability driver provider;
 * -ps 	- modify process object of given ProcessID;
 * -map  - load input file as code buffer to kernel mode and run it;
+* -dse  - write user defined value to the system DSE state flags;
 * -list - list currently available providers.
 
 Example:
-+ kdu -ps 1337
++ kdu -ps 1234
 + kdu -map c:\driverless\mysuperhack.sys
-+ kdu -prv 1 -ps 1337
++ kdu -prv 1 -ps 1234
 + kdu -prv 1 -map c:\driverless\mysuperhack.sys
++ kdu -dse 0
++ kdu -dse 6
 
 Run on Windows 10 20H2 (precomplied version)
 
 <img src="https://raw.githubusercontent.com/hfiref0x/kdu/master/Help/kdu1.png" width="600" />
 
-
 Compiled and run on Windows 8.1
 
 <img src="https://raw.githubusercontent.com/hfiref0x/kdu/master/Help/kdu2.png" width="600" />
+
+Run on Windows 7 SP1 fully patched (precomplied version)
+
+<img src="https://raw.githubusercontent.com/hfiref0x/kdu/master/Help/kdu3.png" width="600" />
+
+Run on Windows 10 19H2 (precompiled version, SecureBoot enabled)
+
+<img src="https://raw.githubusercontent.com/hfiref0x/kdu/master/Help/kdu4.png" width="600" />
 
 
 #### Limitations of -map command
@@ -75,10 +87,17 @@ This tool does not change (and this won't change in future) internal Windows str
 
 You use it at your own risk. Some lazy AV may flag this tool as hacktool/malware.
 
-#### Currently Supported Providers
+# Currently Supported Providers
 
 + Intel Network Adapter Diagnostic Driver of version 1.03.0.7;
-+ RTCore64 driver from MSI Afterburner of version 4.6.2 build 15658 and below.
++ RTCore64 driver from MSI Afterburner of version 4.6.2 build 15658 and below;
++ Gdrv driver from various Gigabyte TOOLS of undefined version;
++ ATSZIO64 driver from ASUSTeK WinFlash utility of various versions;
++ MICSYS MsIo (WinIo) driver from Patriot Viper RGB utility of version 1.0;
++ GLCKIO2 (WinIo) driver from ASRock Polychrome RGB of version 1.0.4;
++ EneIo (WinIo) driver from G.SKILL Trident Z Lighting Control of version 1.00.08;
++ WinRing0x64 driver from EVGA Precision X1 of version 1.0.2.0;
++ EneTechIo (WinIo) driver from Thermaltake TOUGHRAM software of version 1.0.3.
 
 More providers maybe added in the future.
 
@@ -86,7 +105,7 @@ More providers maybe added in the future.
 
 It uses known to be vulnerable driver from legitimate software to access arbitrary kernel memory with read/write primitives.
 
-Depending on command KDU will either work as TDL or modify kernel mode process objects (EPROCESS). 
+Depending on command KDU will either work as TDL/DSEFix or modify kernel mode process objects (EPROCESS). 
 
 When in -map mode KDU will use 3rd party signed driver from SysInternals Process Explorer and hijack it by placing a small loader shellcode inside it IRP_MJ_DEVICE_CONTROL/IRP_MJ_CREATE/IRP_MJ_CLOSE handler. This is done by overwriting physical memory where Process Explorer dispatch handler located and triggering it by calling driver IRP_MJ_CREATE handler (CreateFile call). Next shellcode will map input driver as code buffer to kernel mode and run it with current IRQL be PASSIVE_LEVEL. After that hijacked Process Explorer driver will be unloaded together with vulnerable provider driver. This entire idea comes from malicious software of the middle of 200x known as rootkits.
 
@@ -99,13 +118,30 @@ In order to build from source you need Microsoft Visual Studio 2019 and later ve
 
 Using this program might render your computer into BSOD. Compiled binary and source code provided AS-IS in help it will be useful BUT WITHOUT WARRANTY OF ANY KIND.
 
+# Third party code usage
+
+* TinyAES, https://github.com/kokke/tiny-AES-c
+
 # References
 
+* DSEFix, https://github.com/hfiref0x/DSEFix
 * Turla Driver Loader, https://github.com/hfiref0x/TDL
 * Stryker, https://github.com/hfiref0x/Stryker
 * Unwinding RTCore, https://swapcontext.blogspot.com/2020/01/unwinding-rtcore.html
 * CVE-2019-16098, https://github.com/Barakat/CVE-2019-16098
 * CVE-2015-2291, https://www.exploit-db.com/exploits/36392
+* CVE-2018-19320, https://seclists.org/fulldisclosure/2018/Dec/39
+* ATSZIO64 headers and libs, https://github.com/DOGSHITD/SciDetectorApp/tree/master/DetectSciApp
+* ATSZIO64 ASUS Drivers Privilege Escalation, https://github.com/LimiQS/AsusDriversPrivEscala
+* CVE-2019-18845, https://www.activecyber.us/activelabs/viper-rgb-driver-local-privilege-escalation-cve-2019-18845
+* DEFCON27: Get off the kernel if you cant drive, https://eclypsium.com/wp-content/uploads/2019/08/EXTERNAL-Get-off-the-kernel-if-you-cant-drive-DEFCON27.pdf
+
+# Wormhole drivers code
+
+They are used in multiple products from hardware vendors mostly in unmodified state. They all break OS security model and additionally bugged. Links are for educational purposes of how not to do your drivers. Note that following github accounts have nothing to do with these code, they are just forked/uploaded it.
+
+* WinIo 3.0 BSOD/CVE generator, https://github.com/starofrainnight/winio/blob/master/Source/Drv/WinIo.c
+* WinRing0 BSOD/CVE generator, https://github.com/QCute/WinRing0/blob/master/dll/sys/OpenLibSys.c
 
 # Authors
 

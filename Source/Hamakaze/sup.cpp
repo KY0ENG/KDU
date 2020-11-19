@@ -4,9 +4,9 @@
 *
 *  TITLE:       SUP.CPP
 *
-*  VERSION:     1.00
+*  VERSION:     1.01
 *
-*  DATE:        07 Jan 2020
+*  DATE:        18 Feb 2020
 *
 *  Program global support routines.
 *
@@ -24,7 +24,7 @@
 *
 * Purpose:
 *
-* Wrapper for RtlAllocateHeap with WinObjEx heap.
+* Wrapper for RtlAllocateHeap.
 *
 */
 PVOID FORCEINLINE supHeapAlloc(
@@ -38,13 +38,48 @@ PVOID FORCEINLINE supHeapAlloc(
 *
 * Purpose:
 *
-* Wrapper for RtlFreeHeap with WinObjEx heap.
+* Wrapper for RtlFreeHeap.
 *
 */
 BOOL FORCEINLINE supHeapFree(
     _In_ PVOID Memory)
 {
     return RtlFreeHeap(NtCurrentPeb()->ProcessHeap, 0, Memory);
+}
+
+/*
+* supCallDriver
+*
+* Purpose:
+*
+* Call driver.
+*
+*/
+BOOL supCallDriver(
+    _In_ HANDLE DeviceHandle,
+    _In_ ULONG IoControlCode,
+    _In_ PVOID InputBuffer,
+    _In_ ULONG InputBufferLength,
+    _In_opt_ PVOID OutputBuffer,
+    _In_opt_ ULONG OutputBufferLength)
+{
+    BOOL bResult = FALSE;
+    IO_STATUS_BLOCK ioStatus;
+
+    NTSTATUS ntStatus = NtDeviceIoControlFile(DeviceHandle,
+        NULL,
+        NULL,
+        NULL,
+        &ioStatus,
+        IoControlCode,
+        InputBuffer,
+        InputBufferLength,
+        OutputBuffer,
+        OutputBufferLength);
+
+    bResult = NT_SUCCESS(ntStatus);
+    SetLastError(RtlNtStatusToDosError(ntStatus));
+    return bResult;
 }
 
 /*
@@ -398,7 +433,7 @@ NTSTATUS supLoadDriver(
 )
 {
     SIZE_T keyOffset;
-    NTSTATUS status = STATUS_UNSUCCESSFUL;
+    NTSTATUS status;
     UNICODE_STRING driverServiceName;
 
     WCHAR szBuffer[MAX_PATH + 1];
@@ -509,6 +544,7 @@ NTSTATUS supUnloadDriver(
 */
 NTSTATUS supOpenDriver(
     _In_ LPCWSTR DriverName,
+    _In_ ACCESS_MASK DesiredAccess,
     _Out_ PHANDLE DeviceHandle
 )
 {
@@ -542,7 +578,7 @@ NTSTATUS supOpenDriver(
         InitializeObjectAttributes(&obja, &usDeviceLink, OBJ_CASE_INSENSITIVE, NULL, NULL);
 
         status = NtCreateFile(DeviceHandle,
-            GENERIC_READ | GENERIC_WRITE,
+            DesiredAccess,
             &obja,
             &iost,
             NULL,
@@ -693,7 +729,7 @@ SIZE_T supWriteBufferToFile(
     _In_ SIZE_T Size,
     _In_ BOOL Flush,
     _In_ BOOL Append,
-    _Out_opt_ NTSTATUS *Result
+    _Out_opt_ NTSTATUS* Result
 )
 {
     NTSTATUS           Status = STATUS_UNSUCCESSFUL;
@@ -799,8 +835,8 @@ ULONG_PTR supGetProcAddress(
     _In_ LPCSTR FunctionName
 )
 {
-    ANSI_STRING    cStr;
-    ULONG_PTR      pfn = 0;
+    ANSI_STRING cStr;
+    ULONG_PTR   pfn = 0;
 
     RtlInitString(&cStr, FunctionName);
     if (!NT_SUCCESS(LdrGetProcedureAddress((PVOID)KernelImage, &cStr, 0, (PVOID*)&pfn)))
@@ -1037,7 +1073,7 @@ BOOL supQueryObjectFromHandle(
         for (i = 0; i < pHandles->NumberOfHandles; i++) {
             if (pHandles->Handles[i].UniqueProcessId == CurrentProcessId) {
                 if (pHandles->Handles[i].HandleValue == (USHORT)(ULONG_PTR)hOject) {
-                    *Address = (ULONG_PTR)pHandles->Handles[i].Object;               
+                    *Address = (ULONG_PTR)pHandles->Handles[i].Object;
                     bFound = TRUE;
                     break;
                 }
@@ -1059,14 +1095,14 @@ BOOL supQueryObjectFromHandle(
 BOOL supGetCommandLineOption(
     _In_ LPCTSTR OptionName,
     _In_ BOOL IsParametric,
-    _Out_writes_opt_z_(ValueSize) LPTSTR OptionValue,
+    _Inout_opt_ LPTSTR OptionValue,
     _In_ ULONG ValueSize
 )
 {
-    LPTSTR	cmdline = GetCommandLine();
+    LPTSTR  cmdline = GetCommandLine();
     TCHAR   Param[MAX_PATH + 1];
     ULONG   rlen;
-    int		i = 0;
+    int     i = 0;
 
     RtlSecureZeroMemory(Param, sizeof(Param));
     while (GetCommandLineParam(cmdline, i, Param, MAX_PATH, &rlen))
@@ -1259,7 +1295,6 @@ PBYTE supReadFileToBuffer(
     _Inout_opt_ LPDWORD lpBufferSize
 )
 {
-    BOOL        bCond = FALSE;
     NTSTATUS    status;
     HANDLE      hFile = NULL, hRoot = NULL;
     PBYTE       Buffer = NULL;
@@ -1338,7 +1373,7 @@ PBYTE supReadFileToBuffer(
             }
         }
 
-    } while (bCond);
+    } while (FALSE);
 
     if (hRoot != NULL) {
         NtClose(hRoot);
@@ -1352,4 +1387,236 @@ PBYTE supReadFileToBuffer(
         RtlFreeUnicodeString(&usName);
 
     return Buffer;
+}
+
+/*
+* supGetPML4FromLowStub1M
+*
+* Purpose:
+*
+* Search for PML4 (CR3) entry in low stub.
+*
+* Taken from MemProcFs, https://github.com/ufrisk/MemProcFS/blob/master/vmm/vmmwininit.c#L414
+*
+*/
+ULONG_PTR supGetPML4FromLowStub1M(
+    _In_ ULONG_PTR pbLowStub1M)
+{
+    ULONG offset = 0;
+    ULONG_PTR PML4 = 0;
+    ULONG cr3_offset = FIELD_OFFSET(PROCESSOR_START_BLOCK, ProcessorState) +
+        FIELD_OFFSET(KSPECIAL_REGISTERS, Cr3);
+
+    SetLastError(ERROR_EXCEPTION_IN_SERVICE);
+
+    __try {
+
+        while (offset < 0x100000) {
+
+            offset += 0x1000;
+
+            if (0x00000001000600E9 != (0xffffffffffff00ff & *(UINT64*)(pbLowStub1M + offset))) //PROCESSOR_START_BLOCK->Jmp
+                continue;
+
+            if (0xfffff80000000000 != (0xfffff80000000003 & *(UINT64*)(pbLowStub1M + offset + FIELD_OFFSET(PROCESSOR_START_BLOCK, LmTarget))))
+                continue;
+
+            if (0xffffff0000000fff & *(UINT64*)(pbLowStub1M + offset + cr3_offset))
+                continue;
+
+            PML4 = *(UINT64*)(pbLowStub1M + offset + cr3_offset);
+            break;
+        }
+
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+
+    SetLastError(ERROR_SUCCESS);
+
+    return PML4;
+}
+
+/*
+* supCreateSystemAdminAccessSD
+*
+* Purpose:
+*
+* Create security descriptor with Admin/System ACL set.
+*
+*/
+NTSTATUS supCreateSystemAdminAccessSD(
+    _Out_ PSECURITY_DESCRIPTOR* SecurityDescriptor,
+    _Out_opt_ PULONG Length
+)
+{
+    NTSTATUS ntStatus = STATUS_UNSUCCESSFUL;
+    PSID admSid = NULL;
+    PSID sysSid = NULL;
+    PACL sysAcl = NULL;
+    ULONG daclSize = 0;
+
+    PSECURITY_DESCRIPTOR securityDescriptor;
+
+    SID_IDENTIFIER_AUTHORITY sidAuthority = SECURITY_NT_AUTHORITY;
+
+    *SecurityDescriptor = NULL;
+
+    if (Length)
+        *Length = 0;
+
+    do {
+
+        securityDescriptor = (PSECURITY_DESCRIPTOR)supHeapAlloc(sizeof(SECURITY_DESCRIPTOR));
+        if (securityDescriptor == NULL) {
+            ntStatus = STATUS_MEMORY_NOT_ALLOCATED;
+            break;
+        }
+
+        admSid = (PSID)supHeapAlloc(RtlLengthRequiredSid(2));
+        if (admSid == NULL) {
+            ntStatus = STATUS_MEMORY_NOT_ALLOCATED;
+            break;
+        }
+
+        sysSid = (PSID)supHeapAlloc(RtlLengthRequiredSid(1));
+        if (sysSid == NULL) {
+            ntStatus = STATUS_MEMORY_NOT_ALLOCATED;
+            break;
+        }
+
+        ntStatus = RtlInitializeSid(admSid, &sidAuthority, 2);
+        if (NT_SUCCESS(ntStatus)) {
+            *RtlSubAuthoritySid(admSid, 0) = SECURITY_BUILTIN_DOMAIN_RID;
+            *RtlSubAuthoritySid(admSid, 1) = DOMAIN_ALIAS_RID_ADMINS;
+        }
+        else {
+            break;
+        }
+
+        ntStatus = RtlInitializeSid(sysSid, &sidAuthority, 1);
+        if (NT_SUCCESS(ntStatus)) {
+            *RtlSubAuthoritySid(sysSid, 0) = SECURITY_LOCAL_SYSTEM_RID;
+        }
+        else {
+            break;
+        }
+
+        daclSize = sizeof(ACL) +
+            (2 * sizeof(ACCESS_ALLOWED_ACE)) +
+            RtlLengthSid(admSid) + RtlLengthSid(sysSid) +
+            SECURITY_DESCRIPTOR_MIN_LENGTH;
+
+        sysAcl = (PACL)supHeapAlloc(daclSize);
+        if (sysAcl == NULL) {
+            ntStatus = STATUS_MEMORY_NOT_ALLOCATED;
+            break;
+        }
+
+        ntStatus = RtlCreateAcl(sysAcl, daclSize - SECURITY_DESCRIPTOR_MIN_LENGTH, ACL_REVISION);
+        if (!NT_SUCCESS(ntStatus))
+            break;
+
+        ntStatus = RtlAddAccessAllowedAce(sysAcl,
+            ACL_REVISION,
+            GENERIC_ALL,
+            sysSid);
+
+        if (!NT_SUCCESS(ntStatus))
+            break;
+
+        ntStatus = RtlAddAccessAllowedAce(sysAcl,
+            ACL_REVISION,
+            GENERIC_ALL,
+            admSid);
+
+        if (!NT_SUCCESS(ntStatus))
+            break;
+
+        ntStatus = RtlCreateSecurityDescriptor(securityDescriptor,
+            SECURITY_DESCRIPTOR_REVISION1);
+
+        if (!NT_SUCCESS(ntStatus))
+            break;
+
+        ntStatus = RtlSetDaclSecurityDescriptor(securityDescriptor,
+            TRUE,
+            sysAcl,
+            FALSE);
+
+        if (!NT_SUCCESS(ntStatus))
+            break;
+
+        if (!RtlValidSecurityDescriptor(securityDescriptor))
+            break;
+
+        *SecurityDescriptor = securityDescriptor;
+
+        if (Length)
+            *Length = RtlLengthSecurityDescriptor(securityDescriptor);
+
+    } while (FALSE);
+
+    if (admSid != NULL) supHeapFree(admSid);
+    if (sysSid != NULL) supHeapFree(sysSid);
+    if (sysAcl != NULL) supHeapFree(sysAcl);
+
+    if (!NT_SUCCESS(ntStatus)) {
+        if (securityDescriptor != NULL)
+            supHeapFree(securityDescriptor);
+    }
+
+    return ntStatus;
+}
+
+/*
+* supGetTimeAsSecondsSince1970
+*
+* Purpose:
+*
+* Return seconds since 1970.
+*
+*/
+ULONG supGetTimeAsSecondsSince1970()
+{
+    LARGE_INTEGER fileTime;
+    ULONG seconds = 0;
+
+    GetSystemTimeAsFileTime((PFILETIME)&fileTime);
+    RtlTimeToSecondsSince1970(&fileTime, &seconds);
+    return seconds;
+}
+
+/*
+* supGetModuleBaseByName
+*
+* Purpose:
+*
+* Return module base address.
+*
+*/
+ULONG_PTR supGetModuleBaseByName(
+    _In_ LPCSTR ModuleName
+)
+{
+    ULONG_PTR ReturnAddress = 0;
+    ULONG i, k;
+    PRTL_PROCESS_MODULES miSpace;
+
+    miSpace = (PRTL_PROCESS_MODULES)supGetSystemInfo(SystemModuleInformation);
+    if (miSpace != NULL) {
+        for (i = 0; i < miSpace->NumberOfModules; i++) {
+            k = miSpace->Modules[i].OffsetToFileName;
+            if (_strcmpi_a(
+                (CONST CHAR*)&miSpace->Modules[i].FullPathName[k],
+                ModuleName) == 0)
+            {
+                ReturnAddress = (ULONG_PTR)miSpace->Modules[i].ImageBase;
+                break;
+            }
+        }
+        supHeapFree(miSpace);
+    }
+    return ReturnAddress;
 }

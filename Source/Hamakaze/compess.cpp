@@ -6,7 +6,7 @@
 *
 *  VERSION:     1.00
 *
-*  DATE:        24 Jan 2020
+*  DATE:        07 Feb 2020
 *
 *  Compression support routines.
 *
@@ -19,7 +19,6 @@
 
 #include "global.h"
 #include <msdelta.h>
-#include <compressapi.h>
 
 #pragma comment(lib, "msdelta.lib")
 
@@ -57,7 +56,7 @@ PVOID KDUDecompressResource(
 
         SIZE_T newSize = (DWORD)doOutput.uSize;
         PVOID decomPtr = doOutput.lpStart;
-        
+
         if (supVerifyMappedImageMatchesChecksum(decomPtr,
             (ULONG)newSize))
         {
@@ -73,7 +72,8 @@ PVOID KDUDecompressResource(
 
         DeltaFree(doOutput.lpStart);
 
-    } else {
+    }
+    else {
         printf_s("[!] Error decompressing resource, GetLastError %lu\r\n", GetLastError());
     }
 

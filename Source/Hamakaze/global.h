@@ -4,9 +4,9 @@
 *
 *  TITLE:       GLOBAL.H
 *
-*  VERSION:     1.00
+*  VERSION:     1.01
 *
-*  DATE:        24 Jan 2020
+*  DATE:        18 Feb 2020
 *
 *  Common include header file.
 *
@@ -35,7 +35,8 @@
 #include <strsafe.h>
 #include <ntstatus.h>
 #include <intrin.h>
-#include "ntdll/ntos.h"
+#include "ntos/ntos.h"
+#include "ntos/halamd64.h"
 #include "resource.h"
 
 #if defined(__cplusplus)
@@ -60,3 +61,5 @@ extern "C" {
 #include "ps.h"
 #include "victim.h"
 #include "pagewalk.h"
+#include "dsefix.h"
+#include "tests.h"

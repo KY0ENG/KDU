@@ -4,9 +4,9 @@
 *
 *  TITLE:       SUP.H
 *
-*  VERSION:     1.00
+*  VERSION:     1.01
 *
-*  DATE:        24 Jan 2020
+*  DATE:        18 Feb 2020
 *
 *  Support routines header file.
 *
@@ -33,6 +33,14 @@ PVOID FORCEINLINE supHeapAlloc(
 BOOL FORCEINLINE supHeapFree(
     _In_ PVOID Memory);
 
+BOOL supCallDriver(
+    _In_ HANDLE DeviceHandle,
+    _In_ ULONG IoControlCode,
+    _In_ PVOID InputBuffer,
+    _In_ ULONG InputBufferLength,
+    _In_opt_ PVOID OutputBuffer,
+    _In_opt_ ULONG OutputBufferLength);
+
 NTSTATUS supEnablePrivilege(
     _In_ DWORD Privilege,
     _In_ BOOL Enable);
@@ -48,6 +56,7 @@ NTSTATUS supUnloadDriver(
 
 NTSTATUS supOpenDriver(
     _In_ LPCWSTR DriverName,
+    _In_ ACCESS_MASK DesiredAccess,
     _Out_ PHANDLE DeviceHandle);
 
 PVOID supGetSystemInfo(
@@ -94,7 +103,7 @@ BOOL supQueryObjectFromHandle(
 BOOL supGetCommandLineOption(
     _In_ LPCTSTR OptionName,
     _In_ BOOL IsParametric,
-    _Out_writes_opt_z_(ValueSize) LPTSTR OptionValue,
+    _Inout_opt_ LPTSTR OptionValue,
     _In_ ULONG ValueSize);
 
 BOOLEAN supQueryHVCIState(
@@ -115,3 +124,15 @@ ULONG_PTR supQueryMaximumUserModeAddress();
 BOOLEAN supVerifyMappedImageMatchesChecksum(
     _In_ PVOID BaseAddress,
     _In_ ULONG FileLength);
+
+ULONG_PTR supGetPML4FromLowStub1M(
+    _In_ ULONG_PTR pbLowStub1M);
+
+NTSTATUS supCreateSystemAdminAccessSD(
+    _Out_ PSECURITY_DESCRIPTOR * SecurityDescriptor,
+    _Out_opt_ PULONG Length);
+
+ULONG supGetTimeAsSecondsSince1970();
+
+ULONG_PTR supGetModuleBaseByName(
+    _In_ LPCSTR ModuleName);
